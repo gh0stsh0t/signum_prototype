@@ -13,6 +13,7 @@ import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint
 
 import expo.modules.ApplicationLifecycleDispatcher
 import expo.modules.ExpoReactHostFactory
+import com.anonymous.signum.handlandmarksframeprocessor.HandLandmarksFrameProcessorPluginPackage
 
 class MainApplication : Application(), ReactApplication {
 
@@ -23,6 +24,7 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Packages that cannot be autolinked yet can be added manually here, for example:
           // add(MyReactNativePackage())
+          add(HandLandmarksFrameProcessorPluginPackage()) 
         }
     )
   }
@@ -41,12 +43,5 @@ class MainApplication : Application(), ReactApplication {
   override fun onConfigurationChanged(newConfig: Configuration) {
     super.onConfigurationChanged(newConfig)
     ApplicationLifecycleDispatcher.onConfigurationChanged(this, newConfig)
-  }
-
-  override fun getPackages(): List<ReactPackage> {
-    val packages = PackageList(this).packages.toMutableList()
-    // Add this line!
-    packages.add(HandDetectorPackage()) 
-    return packages
   }
 }

@@ -1,346 +1,398 @@
-import React, { useEffect, useState } from "react";
+import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Link } from "expo-router";
+import React from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
+  Image,
+  ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
 } from "react-native";
-import { useTensorflowModel } from "react-native-fast-tflite";
-import { useSharedValue } from "react-native-reanimated";
-import Svg, { Circle, Line } from "react-native-svg";
-import { useRunOnJS } from "react-native-worklets-core";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import {
-  Camera,
-  Frame,
-  VisionCameraProxy,
-  useCameraDevice,
-  useCameraPermission,
-  useFrameProcessor,
-} from "react-native-vision-camera";
+const COLORS = {
+  background: "#FFFFFF",
+  navy: "#05317E",
+  textDark: "#1A2346",
+  pillInactiveBg: "#E8EDEE",
+  pillInactiveText: "#4A5B7D",
+  pillActiveBg: "#CDE1FA",
+  pillActiveText: "#05317E",
+  cardBgLight: "#AECDF3",
+  cardBgLighter: "#C4DBF6",
+  cardIconBgLight: "#D0E3FA",
+};
 
-// 1. Initialize our custom native hand tracking plugin
-const plugin = VisionCameraProxy.initFrameProcessorPlugin("detectHands", {});
-
-const LABELS = [
-  "A",
-  "B",
-  "C",
-  "D",
-  "E",
-  "F",
-  "G",
-  "H",
-  "I",
-  "J",
-  "K",
-  "L",
-  "M",
-  "N",
-  "O",
-  "P",
-  "Q",
-  "R",
-  "S",
-  "T",
-  "U",
-  "V",
-  "W",
-  "X",
-  "Y",
-  "Z",
+// Dummy Data
+const filters = ["All", "Today", "This Month", "Overall"];
+const stats = [
+  { value: "12h 33m", label: "Practice Time" },
+  { value: "75%", label: "Quiz Performance" },
+  { value: "56,70%", label: "Progress" },
 ];
 
-// Configuration Constants
-const CONFIDENCE_THRESHOLD = 0.75;
-const STABILITY_THRESHOLD = 3;
-
-// Screen dimensions to scale the normalized [0-1] coordinates
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-// MediaPipe Hand Topology Connections
-const HAND_CONNECTIONS = [
-  [0, 1],
-  [1, 2],
-  [2, 3],
-  [3, 4], // Thumb
-  [0, 5],
-  [5, 6],
-  [6, 7],
-  [7, 8], // Index Finger
-  [5, 9],
-  [9, 10],
-  [10, 11],
-  [11, 12], // Middle Finger
-  [9, 13],
-  [13, 14],
-  [14, 15],
-  [15, 16], // Ring Finger
-  [13, 17],
-  [0, 17],
-  [17, 18],
-  [18, 19],
-  [19, 20], // Pinky & Palm
-];
-
-// Replicates the Python preprocessing logic
-// Must be a worklet to run inside the frameProcessor
-function preProcessLandmark(
-  rawLandmarks: number[],
-  frameWidth: number,
-  frameHeight: number
-) {
-  "worklet";
-  const tempLandmarkList = [];
-
-  // 1. Convert to absolute frame coordinates (and drop the Z axis)
-  for (let i = 0; i < 21; i++) {
-    // rawLandmarks is assumed to be flattened [x0, y0, z0, x1, y1, z1...]
-    const lx = Math.min(
-      Math.floor(rawLandmarks[i * 3] * frameWidth),
-      frameWidth - 1
-    );
-    const ly = Math.min(
-      Math.floor(rawLandmarks[i * 3 + 1] * frameHeight),
-      frameHeight - 1
-    );
-    tempLandmarkList.push([lx, ly]);
-  }
-
-  // 2. Convert to relative coordinates (relative to the wrist: index 0)
-  const baseX = tempLandmarkList[0][0];
-  const baseY = tempLandmarkList[0][1];
-
-  const flattenedAndRelative = [];
-  for (let i = 0; i < 21; i++) {
-    flattenedAndRelative.push(tempLandmarkList[i][0] - baseX);
-    flattenedAndRelative.push(tempLandmarkList[i][1] - baseY);
-  }
-
-  // 3. Normalization
-  let maxValue = 0;
-  for (let i = 0; i < flattenedAndRelative.length; i++) {
-    const absVal = Math.abs(flattenedAndRelative[i]);
-    if (absVal > maxValue) {
-      maxValue = absVal;
-    }
-  }
-
-  const normalizedList = [];
-  for (let i = 0; i < flattenedAndRelative.length; i++) {
-    normalizedList.push(maxValue > 0 ? flattenedAndRelative[i] / maxValue : 0);
-  }
-
-  // Returns an array of 42 normalized values
-  return normalizedList;
-}
-
-export default function CameraTab(): React.JSX.Element | null {
-  const { hasPermission, requestPermission } = useCameraPermission();
-  const device = useCameraDevice("front");
-
-  const [translatedText, setTranslatedText] = useState<string>(
-    "Waiting for signs..."
-  );
-  const [debugLandmarks, setDebugLandmarks] = useState<number[]>([]);
-
-  const lastDetectedLetter = useSharedValue<string>("");
-  const detectionCount = useSharedValue<number>(0);
-
-  const updateTextJS = useRunOnJS((text: string) => {
-    setTranslatedText(text);
-  }, []);
-
-  const updateDebugOverlay = useRunOnJS((data: number[]) => {
-    setDebugLandmarks(data);
-  }, []);
-
-  // Load your TFLite model
-  const tfPlugin = useTensorflowModel(
-    require("../../assets/keypoint_classifier.tflite")
-  );
-  const model = tfPlugin.state === "loaded" ? tfPlugin.model : undefined;
-
-  useEffect(() => {
-    if (!hasPermission) {
-      requestPermission();
-    }
-  }, [hasPermission, requestPermission]);
-
-  const frameProcessor = useFrameProcessor(
-    (frame: Frame) => {
-      "worklet";
-      if (model == null || plugin == null) return;
-
-      try {
-        const handDataArray = plugin.call(frame) as number[];
-
-        // 1. Check if we have valid hand data (21 points * 3 = 63 values)
-        if (handDataArray && handDataArray.length === 63) {
-          // Send raw coordinates to JS thread for debug rendering
-          updateDebugOverlay(handDataArray);
-
-          // 2. Pre-process landmarks to match Python training logic
-          const preprocessed = preProcessLandmark(
-            handDataArray,
-            frame.width,
-            frame.height
-          );
-
-          // Now feed the preprocessed 42-length array into the model
-          const tensorData = new Float32Array(preprocessed);
-          const outputs = model.runSync([tensorData]);
-
-          if (outputs && outputs.length > 0) {
-            const predictions = outputs[0] as number[];
-
-            // 3. Efficiently find the Max Index
-            let maxConf = 0;
-            let maxIdx = -1;
-            for (let i = 0; i < predictions.length; i++) {
-              if (predictions[i] > maxConf) {
-                maxConf = predictions[i];
-                maxIdx = i;
-              }
-            }
-
-            // 4. Temporal Smoothing Logic
-            if (maxConf > CONFIDENCE_THRESHOLD) {
-              const currentSign = LABELS[maxIdx];
-
-              if (currentSign === lastDetectedLetter.value) {
-                detectionCount.value += 1;
-              } else {
-                lastDetectedLetter.value = currentSign;
-                detectionCount.value = 1;
-              }
-
-              if (detectionCount.value === STABILITY_THRESHOLD && currentSign) {
-                updateTextJS(
-                  `Detected: ${currentSign} (${(maxConf * 100).toFixed(0)}%)`
-                );
-              }
-            }
-          }
-        } else {
-          detectionCount.value = 0;
-          updateDebugOverlay([]);
-        }
-      } catch (e) {
-        console.error("Frame Error:", JSON.stringify(e));
-      }
-    },
-    [model]
-  );
-
-  const getPoint = (index: number) => {
-    if (debugLandmarks.length === 0) return { x: 0, y: 0 };
-    return {
-      x: debugLandmarks[index * 3] * SCREEN_WIDTH,
-      y: debugLandmarks[index * 3 + 1] * SCREEN_HEIGHT,
-    };
-  };
-
-  if (!hasPermission)
-    return (
-      <View style={styles.center}>
-        <Text style={styles.text}>Requesting permission...</Text>
-      </View>
-    );
-  if (device == null)
-    return (
-      <View style={styles.center}>
-        <Text style={styles.text}>No camera found.</Text>
-      </View>
-    );
-
+export default function DashboardScreen() {
   return (
-    <View style={styles.container}>
-      <Camera
-        style={StyleSheet.absoluteFill}
-        device={device}
-        isActive={true}
-        frameProcessor={frameProcessor}
-        pixelFormat="rgb"
-      />
-
-      {/* SVG Skeleton Overlay */}
-      {debugLandmarks.length === 63 && (
-        <View style={StyleSheet.absoluteFill} pointerEvents="none">
-          <Svg height="100%" width="100%">
-            {/* Draw Bones (Lines) */}
-            {HAND_CONNECTIONS.map((connection, i) => {
-              const start = getPoint(connection[0]);
-              const end = getPoint(connection[1]);
-              return (
-                <Line
-                  key={`line-${i}`}
-                  x1={start.x}
-                  y1={start.y}
-                  x2={end.x}
-                  y2={end.y}
-                  stroke="#00FF00"
-                  strokeWidth="3"
-                />
-              );
-            })}
-
-            {/* Draw Joints (Circles) */}
-            {Array.from({ length: 21 }).map((_, i) => {
-              const point = getPoint(i);
-              return (
-                <Circle
-                  key={`joint-${i}`}
-                  cx={point.x}
-                  cy={point.y}
-                  r="5"
-                  fill="#FF0000"
-                />
-              );
-            })}
-          </Svg>
+    <SafeAreaView style={styles.safeArea}>
+      <ScrollView
+        contentContainerStyle={styles.container}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.greetingText}>Good Morning,</Text>
+            <Text style={styles.nameText}>Loren Ipsum</Text>
+          </View>
+          <View style={styles.profileSection}>
+            <TouchableOpacity>
+              <Ionicons
+                name="notifications-sharp"
+                size={24}
+                color={COLORS.navy}
+                style={styles.bellIcon}
+              />
+            </TouchableOpacity>
+            <Image
+              source={{ uri: "https://i.pravatar.cc/150?img=47" }}
+              style={styles.profilePic}
+            />
+          </View>
         </View>
-      )}
 
-      {tfPlugin.state === "loading" && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#00FF00" />
-          <Text style={styles.text}>Waking up AI...</Text>
+        <Link href="/lesson" asChild>
+          <TouchableOpacity style={styles.primaryButton}>
+            <Feather
+              name="plus"
+              size={20}
+              color="#FFF"
+              style={styles.btnIcon}
+            />
+            <Text style={styles.primaryButtonText}>Start New Lesson</Text>
+          </TouchableOpacity>
+        </Link>
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Task Overview</Text>
+          <TouchableOpacity style={styles.gridIconContainer}>
+            <MaterialCommunityIcons name="view-grid" size={20} color="#FFF" />
+          </TouchableOpacity>
         </View>
-      )}
 
-      <View style={styles.overlay}>
-        <Text style={styles.overlayText}>{translatedText}</Text>
-      </View>
-    </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filtersScroll}
+        >
+          {filters.map((item, index) => (
+            <TouchableOpacity
+              key={index}
+              style={[
+                styles.pill,
+                index === 0 ? styles.pillActive : styles.pillInactive,
+              ]}
+            >
+              <Text
+                style={
+                  index === 0 ? styles.pillActiveText : styles.pillInactiveText
+                }
+              >
+                {item}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* Main Learning Progress Card */}
+        <View
+          style={[styles.mainCard, { backgroundColor: COLORS.cardBgLight }]}
+        >
+          <View style={styles.cardHeader}>
+            <Text style={styles.cardTitle}>Learning Progress</Text>
+            <View style={styles.iconCircleLight}>
+              <Ionicons name="caret-up" size={16} color={COLORS.navy} />
+            </View>
+          </View>
+          <View style={styles.cardContent}>
+            <Text style={styles.cardPercentage}>100%</Text>
+            <Text style={styles.cardSubtitle}>Lessons Completed</Text>
+          </View>
+        </View>
+
+        <View style={styles.subCardsRow}>
+          <View
+            style={[styles.subCard, { backgroundColor: COLORS.cardBgLight }]}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitleSmall}>Quiz Accuracy</Text>
+              <View style={styles.iconCircleLight}>
+                <Ionicons name="caret-up" size={14} color={COLORS.navy} />
+              </View>
+            </View>
+            <View style={styles.subCardContent}>
+              <Text style={styles.cardPercentageSmall}>50%</Text>
+              <Text style={styles.cardSubtitleSmall}>Correct Signs</Text>
+            </View>
+          </View>
+
+          <View
+            style={[styles.subCard, { backgroundColor: COLORS.cardBgLight }]}
+          >
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitleSmall}>Practice{"\n"}Sessions</Text>
+              <View style={styles.iconCircleDark}>
+                <Ionicons name="caret-down" size={14} color="#FFF" />
+              </View>
+            </View>
+            <View style={styles.subCardContent}>
+              <Text style={styles.cardPercentageSmall}>30%</Text>
+              <Text style={styles.cardSubtitleSmall}>In Progress</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Learning Statistics Section */}
+        <Text style={[styles.sectionTitle, styles.statsTitle]}>
+          Learning Statistics
+        </Text>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.statsScroll}
+        >
+          {stats.map((stat, index) => (
+            <View key={index} style={styles.statCard}>
+              <Text style={styles.statValue}>{stat.value}</Text>
+              <Text style={styles.statLabel}>{stat.label}</Text>
+            </View>
+          ))}
+        </ScrollView>
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  center: {
+  safeArea: {
     flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  container: {
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  headerRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 20,
+    marginBottom: 24,
+  },
+  greetingText: {
+    fontSize: 20,
+    color: COLORS.textDark,
+  },
+  nameText: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: COLORS.textDark,
+    marginTop: 2,
+  },
+  profileSection: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  bellIcon: {
+    marginRight: 16,
+  },
+  profilePic: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+  },
+  primaryButton: {
+    backgroundColor: COLORS.navy,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    borderRadius: 30,
+    marginBottom: 32,
+  },
+  btnIcon: {
+    marginRight: 8,
+  },
+  primaryButtonText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: COLORS.textDark,
+  },
+  gridIconContainer: {
+    backgroundColor: COLORS.navy,
+    padding: 6,
+    borderRadius: 12,
+  },
+  filtersScroll: {
+    flexDirection: "row",
+    marginBottom: 20,
+  },
+  pill: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  pillActive: {
+    backgroundColor: COLORS.pillActiveBg,
+  },
+  pillInactive: {
+    backgroundColor: COLORS.pillInactiveBg,
+  },
+  pillActiveText: {
+    color: COLORS.pillActiveText,
+    fontWeight: "500",
+  },
+  pillInactiveText: {
+    color: COLORS.pillInactiveText,
+  },
+  mainCard: {
+    borderRadius: 24,
+    padding: 20,
+    height: 200,
+    marginBottom: 16,
+    justifyContent: "space-between",
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+  },
+  cardTitle: {
+    fontSize: 16,
+    color: COLORS.textDark,
+    fontWeight: "500",
+  },
+  iconCircleLight: {
+    backgroundColor: COLORS.cardIconBgLight,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#121212",
   },
-  text: { color: "white", fontSize: 18, marginTop: 10 },
-  loadingOverlay: {
-    position: "absolute",
-    top: 100,
-    alignSelf: "center",
+  iconCircleDark: {
+    backgroundColor: COLORS.navy,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: "center",
     alignItems: "center",
   },
-  overlay: {
-    position: "absolute",
-    bottom: 30,
-    left: 20,
-    right: 20,
-    backgroundColor: "rgba(0,0,0,0.8)",
-    padding: 20,
-    borderRadius: 15,
-    alignItems: "center",
+  cardContent: {
+    marginTop: "auto",
   },
-  overlayText: { color: "#00FF00", fontSize: 24, fontWeight: "bold" },
+  cardPercentage: {
+    fontSize: 48,
+    fontWeight: "800",
+    color: COLORS.textDark,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: COLORS.textDark,
+    marginTop: 4,
+  },
+  subCardsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 32,
+  },
+  subCard: {
+    width: "48%",
+    borderRadius: 24,
+    padding: 16,
+    height: 160,
+    justifyContent: "space-between",
+  },
+  cardTitleSmall: {
+    fontSize: 14,
+    color: COLORS.textDark,
+    fontWeight: "500",
+  },
+  subCardContent: {
+    marginTop: "auto",
+  },
+  cardPercentageSmall: {
+    fontSize: 32,
+    fontWeight: "800",
+    color: COLORS.textDark,
+  },
+  cardSubtitleSmall: {
+    fontSize: 13,
+    color: COLORS.textDark,
+    marginTop: 2,
+  },
+  statsTitle: {
+    marginBottom: 16,
+  },
+  statsScroll: {
+    flexDirection: "row",
+    marginBottom: 32,
+  },
+  statCard: {
+    backgroundColor: COLORS.cardBgLight,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 16,
+    marginRight: 12,
+    alignItems: "center",
+    minWidth: 120,
+  },
+  statValue: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#FFF",
+    marginBottom: 4,
+  },
+  statLabel: {
+    fontSize: 12,
+    color: COLORS.textDark,
+    fontWeight: "500",
+  },
+  bottomButton: {
+    backgroundColor: COLORS.navy,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 30,
+    position: "relative",
+  },
+  bottomButtonText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  bottomButtonIconWrapper: {
+    backgroundColor: COLORS.pillActiveBg,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "absolute",
+    right: 8,
+  },
 });

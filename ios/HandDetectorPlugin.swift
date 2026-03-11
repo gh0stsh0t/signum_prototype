@@ -27,9 +27,9 @@ public class HandDetectorPlugin: FrameProcessorPlugin {
       let options = HandLandmarkerOptions()
 
       options.baseOptions.modelAssetPath = modelPath
-      options.minHandDetectionConfidence = 0.7
-      options.minTrackingConfidence = 0.7
-      options.numHands = 1
+      options.minHandDetectionConfidence = 0.5
+      options.minTrackingConfidence = 0.5
+      options.numHands = 2 
       options.runningMode = .video
 
       self.handLandmarker = try HandLandmarker(options: options)
@@ -44,35 +44,25 @@ public class HandDetectorPlugin: FrameProcessorPlugin {
   ) -> Any? {
     guard let landmarker = self.handLandmarker else { return [] }
 
-    do {
-      // 1. Let MediaPipe handle the sensor-to-portrait rotation automatically
-      // Vision Camera's `frame.orientation` knows exactly how the sensor is rotated
-      // relative to your portrait app.
-      let mpImage = try MPImage(
-        sampleBuffer: frame.buffer,
-        orientation: frame.orientation
-      )
-
+   do {
+      let mpImage = try MPImage(sampleBuffer: frame.buffer, orientation: frame.orientation)
       let timestampMs = Int(frame.timestamp * 1000)
-      let result = try landmarker.detect(
-        videoFrame: mpImage,
-        timestampInMilliseconds: timestampMs
-      )
+      let result = try landmarker.detect(videoFrame: mpImage, timestampInMilliseconds: timestampMs)
 
-      var coordinates: [Double] = []
+      // 1. Create a Dictionary instead of an Array
+      var handsObject: [String: Any] = [:]
 
-      // 2. Extract the numbers and apply the "Mirror" fix
-      if let firstHand = result.landmarks.first {
-        for landmark in firstHand {
+      for i in 0..<result.landmarks.count {
+        let handLandmarks = result.landmarks[i]
+        
+        // Grab the label ("Left" or "Right")
+        let handednessLabel = result.handedness[i].first?.categoryName ?? "Unknown"
+        
+        var coordinates: [Double] = []
+        for landmark in handLandmarks {
           let rawX = Double(landmark.x)
           let rawY = Double(landmark.y)
           
-          // Fix for iOS Front Camera in Portrait (Rotated 270 degrees + Mirrored)
-          // We swap X and Y, and invert to fix the mirroring.
-          // let fixedX = rawY
-          // let fixedY = 1.0 - rawX 
-          
-          // NOTE: If the skeleton is upside down after this, use:
           let fixedX = 1.0 - rawY
           let fixedY = rawX
           
@@ -80,13 +70,19 @@ public class HandDetectorPlugin: FrameProcessorPlugin {
           coordinates.append(fixedY)
           coordinates.append(Double(landmark.z)) 
         }
+        
+        // 2. Assign the array to the Dictionary key
+        // Note: If MediaPipe glitches and detects two "Left" hands, 
+        // the second one will overwrite the first one here.
+        handsObject[handednessLabel] = coordinates
       }
 
-      return coordinates
+      // 3. Return the Dictionary (Becomes a JS Object)
+      return handsObject
 
     } catch {
       print("MediaPipe detection failed: \(error)")
-      return []
+      return [:]
     }
   }
 }
