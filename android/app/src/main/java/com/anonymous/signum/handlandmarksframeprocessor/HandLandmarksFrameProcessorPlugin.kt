@@ -7,6 +7,7 @@ import com.mrousavy.camera.frameprocessors.FrameProcessorPlugin
 import com.mrousavy.camera.frameprocessors.VisionCameraProxy
 import com.google.mediapipe.framework.image.MediaImageBuilder
 import com.google.mediapipe.tasks.core.BaseOptions
+import com.google.mediapipe.tasks.core.Delegate
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker.HandLandmarkerOptions
@@ -25,6 +26,7 @@ class HandLandmarksFrameProcessorPlugin(
             // In Android, models are read directly from the assets folder.
             val baseOptions = BaseOptions.builder()
                 .setModelAssetPath("hand_landmarker.task")
+                .setDelegate(Delegate.GPU)
                 .build()
 
             val landmarkerOptions = HandLandmarkerOptions.builder()
@@ -41,56 +43,51 @@ class HandLandmarksFrameProcessorPlugin(
         }
     }
 
-    override fun callback(frame: Frame, arguments: Map<String, Any>?): Any? {
-        val landmarker = this.handLandmarker ?: return emptyMap<String, Any>()
+  override fun callback(frame: Frame, arguments: Map<String, Any>?): Any? {
+    val landmarker = this.handLandmarker ?: return emptyMap<String, Any>()
 
-        return try {
-            // Convert VisionCamera Frame to MediaPipe MPImage
-            val mpImage = MediaImageBuilder(frame.image).build()
+    return try {
+        val mpImage = MediaImageBuilder(frame.image).build()
+        val timestampMs = (frame.timestamp / 1_000_000).toLong()
+        
+        // 1. Inference is synchronous here. This is why resolution matters.
+        val result = landmarker.detectForVideo(mpImage, timestampMs)
+
+        val landmarksList = result.landmarks()
+        
+        // OPTIMIZATION 1: Fast exit if no hands are detected
+        if (landmarksList.isEmpty()) {
+            return emptyMap<String, Any>() 
+        }
+
+        val handsObject = mutableMapOf<String, Any>()
+        val handednessList = result.handednesses()
+
+        for (i in landmarksList.indices) {
+            val handLandmarks = landmarksList[i]
+            val handednessLabel = handednessList.getOrNull(i)?.firstOrNull()?.categoryName() ?: "Unknown"
+
+            // OPTIMIZATION 2: Pre-allocate EXACT capacity (21 landmarks * 3 coords = 63)
+            // This prevents the array from resizing itself multiple times per frame
+            val coordinates = ArrayList<Double>(63)
             
-            // VisionCamera Android timestamps are usually in nanoseconds. Convert to milliseconds.
-            val timestampMs = (frame.timestamp / 1_000_000).toLong()
-            
-            val result = landmarker.detectForVideo(mpImage, timestampMs)
-
-            // 1. Create a Map instead of an Array
-            val handsObject = mutableMapOf<String, Any>()
-
-            val landmarksList = result.landmarks()
-            val handednessList = result.handednesses()
-
-            for (i in landmarksList.indices) {
-                val handLandmarks = landmarksList[i]
+            for (landmark in handLandmarks) {
+                val rawX = landmark.x().toDouble()
+                val rawY = landmark.y().toDouble()
                 
-                // Grab the label ("Left" or "Right")
-                val handednessLabel = handednessList.getOrNull(i)?.firstOrNull()?.categoryName() ?: "Unknown"
-
-                val coordinates = mutableListOf<Double>()
-                for (landmark in handLandmarks) {
-                    val rawX = landmark.x().toDouble()
-                    val rawY = landmark.y().toDouble()
-                    
-                    // Same coordinate manipulation as your Swift file
-                    val fixedX = 1.0 - rawY
-                    val fixedY = 1.0 - rawX
-                    
-                    coordinates.add(fixedX)
-                    coordinates.add(fixedY)
-                    coordinates.add(landmark.z().toDouble())
-                }
-
-                // 2. Assign the array to the Map key
-                // Note: If MediaPipe glitches and detects two "Left" hands, 
-                // the second one will overwrite the first one here.
-                handsObject[handednessLabel] = coordinates
+                coordinates.add(1.0 - rawY)
+                coordinates.add(1.0 - rawX) // Using the vertical fix from earlier
+                coordinates.add(landmark.z().toDouble())
             }
 
-            // 3. Return the Map (Becomes a JS Object)
-            handsObject
-
-        } catch (e: Exception) {
-            Log.e("HandDetectorPlugin", "MediaPipe detection failed: ${e.message}", e)
-            emptyMap<String, Any>()
+            handsObject[handednessLabel] = coordinates
         }
+
+        handsObject
+
+    } catch (e: Exception) {
+        Log.e("HandDetectorPlugin", "MediaPipe detection failed: ${e.message}", e)
+        emptyMap<String, Any>()
     }
+  }
 }

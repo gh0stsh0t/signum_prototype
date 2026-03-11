@@ -19,6 +19,7 @@ import {
   Frame,
   VisionCameraProxy,
   useCameraDevice,
+  useCameraFormat,
   useCameraPermission,
   useFrameProcessor,
 } from "react-native-vision-camera";
@@ -135,6 +136,10 @@ export default function CameraTab(): React.JSX.Element | null {
     "Waiting for signs..."
   );
   const [debugLandmarks, setDebugLandmarks] = useState<number[][]>([]);
+  const format = useCameraFormat(device, [
+    { videoResolution: { width: 640, height: 480 } }, // 480p or lower!
+    { fps: 30 }, // Or 60, if your device supports it at this resolution
+  ]);
 
   const lastDetectedLetter = useSharedValue<string>("");
   const detectionCount = useSharedValue<number>(0);
@@ -262,6 +267,7 @@ export default function CameraTab(): React.JSX.Element | null {
         isActive={true}
         frameProcessor={frameProcessor}
         pixelFormat="rgb"
+        // format={format}
       />
 
       {debugLandmarks.length > 0 && (
