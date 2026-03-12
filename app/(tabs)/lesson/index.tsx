@@ -7,10 +7,15 @@ import {
   View,
 } from "react-native";
 
+import { useProgressStore } from "@/components/store/useProgressStore";
 import LessonGroup from "@/constants/LessonGroup";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
+
+
+const LETTERS_IDS = ["1", "2", "3", "4", "5"];
+
 const renderIcon = (status: string) => {
   switch (status) {
     case "completed":
@@ -24,50 +29,98 @@ const renderIcon = (status: string) => {
   }
 };
 
-const mockProgress = {
-  "1": { status: "completed", score: "100%" },
-  "2": { status: "in-progress", score: "45%" },
-};
 const ASLLettersScreen = () => {
-  const lessons = LessonGroup.map((lessonDetails) => ({
-    ...lessonDetails,
-    ...(mockProgress?.[lessonDetails.id] ?? { status: "locked" }),
-  }));
   const router = useRouter();
+  // 1. Get ONLY the completed letters from the store
+  const completedLettersData = useProgressStore(
+    (state) => state.completedLetters
+  );
+
+  // 2. Calculate status and progress dynamically for each lesson
+  const lessons = LessonGroup.map((lessonDetails, index) => {
+    const completedSigns = completedLettersData[lessonDetails.id] || [];
+    const totalSigns = lessonDetails.signs?.length || 1;
+
+    const progressPercent = Math.round(
+      (completedSigns.length / totalSigns) * 100
+    );
+
+    // Determine Status
+    let status: "locked" | "in-progress" | "completed" = "locked";
+
+    if (progressPercent === 100) {
+      status = "completed";
+    } else {
+      // Check if previous lesson is started to unlock this one
+      const isFirstLesson = index === 0;
+      const prevLessonId = index > 0 ? LessonGroup[index - 1].id : null;
+      const prevLessonCompletedSigns = prevLessonId
+        ? completedLettersData[prevLessonId] || []
+        : [];
+
+      const isPrevLessonOngoing = prevLessonCompletedSigns.length > 0;
+
+      if (isFirstLesson || isPrevLessonOngoing || completedSigns.length > 0) {
+        status = "in-progress";
+      }
+    }
+
+    return {
+      ...lessonDetails,
+      status,
+      progress: `${progressPercent}%`, // Renamed from score
+    };
+  });
+
+  const alphabetCompleted = LETTERS_IDS.reduce(
+    (acc, id) => (acc = (completedLettersData[id]?.length || 0) + acc),
+    0
+  );
+
+  const startWhere = lessons.find((lesson) => lesson.status === "in-progress");
 
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton}>
-            <Ionicons name="arrow-back" size={24} color="#022469" />
-          </TouchableOpacity>
           <Text style={styles.headerTitle}>ASL Alphabet</Text>
           <View style={{ width: 24 }} />
         </View>
 
-        <View style={styles.heroCard}>
-          <View style={styles.heroTextContainer}>
-            <Text style={styles.heroTitle}>Master the Basics</Text>
-            <Text style={styles.heroSubtitle}>
-              Learn the 26 letters of the ASL alphabet to start fingerspelling.
-            </Text>
+        {startWhere && (
+          <View style={styles.heroCard}>
+            <View style={styles.heroTextContainer}>
+              <Text style={styles.heroTitle}>Master the Basics</Text>
+              <Text style={styles.heroSubtitle}>
+                Learn the 26 letters of the ASL alphabet to start
+                fingerspelling.
+              </Text>
 
-            <TouchableOpacity style={styles.primaryButton}>
-              <Text style={styles.primaryButtonText}>Continue Learning</Text>
-            </TouchableOpacity>
-          </View>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() =>
+                  router.navigate(`./lesson/lessonGroup/${startWhere.id}`)
+                }
+              >
+                <Text style={styles.primaryButtonText}>Continue Learning</Text>
+              </TouchableOpacity>
+            </View>
 
-          {/* Decorative Circle representing progress/graphic */}
-          <View style={styles.heroProgressCircle}>
-            <Text style={styles.heroProgressText}>18%</Text>
+            {/* Decorative Circle representing progress/graphic */}
+            <View style={styles.heroProgressCircle}>
+              <Text style={styles.heroProgressText}>
+                {((alphabetCompleted / 26) * 100).toLocaleString(undefined, {
+                  maximumFractionDigits: 1,
+                })}
+                %
+              </Text>
+            </View>
           </View>
-        </View>
+        )}
 
         {/* Lesson List */}
         <View style={styles.lessonHeaderContainer}>
           <Text style={styles.sectionTitle}>Lesson Modules</Text>
-          <Ionicons name="grid" size={20} color="#022469" />
         </View>
 
         {lessons.map((lesson) => (
@@ -89,9 +142,9 @@ const ASLLettersScreen = () => {
               >
                 {lesson.title}
               </Text>
-              {lesson.score && (
+              {lesson.progress && (
                 <Text style={styles.lessonSubtitle}>
-                  Accuracy: {lesson.score}
+                  Progress: {lesson.progress}
                 </Text>
               )}
               {lesson.status === "locked" && (
@@ -122,13 +175,10 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     alignItems: "center",
     marginTop: 20,
     marginBottom: 25,
-  },
-  backButton: {
-    padding: 5,
   },
   headerTitle: {
     fontSize: 22,

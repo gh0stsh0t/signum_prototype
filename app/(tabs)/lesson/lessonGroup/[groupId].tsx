@@ -1,4 +1,5 @@
 import ASLCameraQuiz from "@/components/ASLCameraQuiz";
+import { useProgressStore } from "@/components/store/useProgressStore";
 import Instructions from "@/constants/Instructions";
 import LessonGroup from "@/constants/LessonGroup";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,6 +27,9 @@ const ASLLessonViewScreen = () => {
   // Toggle states for combining the views
   const [showQuiz, setShowQuiz] = useState(false);
   const [quizPassed, setQuizPassed] = useState(false);
+  const addCompletedLetter = useProgressStore(
+    (state) => state.addCompletedLetter
+  );
 
   const currentGroup = LessonGroup.find((lesson) => lesson.id === groupId);
   const currentSign = currentGroup?.signs[currentIndex] || "";
@@ -68,12 +72,29 @@ const ASLLessonViewScreen = () => {
           <ASLCameraQuiz
             targetLetter={currentSign}
             onSuccess={() => {
+              addCompletedLetter(groupId, currentSign);
               setQuizPassed(true);
             }}
           />
         </ScrollView>
 
         <View style={styles.quizFooter}>
+          <TouchableOpacity
+            style={styles.skipButton}
+            onPress={() => {
+              // Note: We intentionally do NOT call addCompletedLetter here
+              if (currentIndex < totalLetters - 1) {
+                setCurrentIndex((prev) => prev + 1);
+                setShowQuiz(false);
+                setQuizPassed(false);
+              } else {
+                alert("Lesson Complete!");
+                router.back();
+              }
+            }}
+          >
+            <Text style={styles.skipButtonText}>Skip</Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.nextQuizButton,
@@ -82,7 +103,6 @@ const ASLLessonViewScreen = () => {
             disabled={!quizPassed}
             onPress={() => {
               if (currentIndex < totalLetters - 1) {
-                // Advance to the next letter and return to the instruction view
                 setCurrentIndex((prev) => prev + 1);
                 setShowQuiz(false);
                 setQuizPassed(false);
@@ -303,15 +323,41 @@ const styles = StyleSheet.create({
     color: "#022469",
     marginBottom: 15,
   },
-  quizFooter: { paddingHorizontal: 30, paddingBottom: 20, paddingTop: 10 },
+  quizFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingBottom: 30,
+    paddingTop: 10,
+  },
+  skipButton: {
+    backgroundColor: "#E5EDFA",
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    flex: 1,
+    marginRight: 10,
+  },
+  skipButtonText: {
+    color: "#022469",
+    fontWeight: "700",
+    fontSize: 16,
+  },
   nextQuizButton: {
     backgroundColor: "#022469",
     paddingVertical: 16,
+    paddingHorizontal: 20,
     borderRadius: 30,
     alignItems: "center",
+    justifyContent: "center",
+    flex: 2,
+    marginLeft: 10,
   },
   nextButtonDisabled: { backgroundColor: "#AEC6EE", opacity: 0.5 },
-  nextQuizButtonText: { color: "#FFFFFF", fontSize: 18, fontWeight: "700" },
+  nextQuizButtonText: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
 });
 
 export default ASLLessonViewScreen;

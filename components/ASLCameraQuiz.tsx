@@ -77,49 +77,51 @@ const HAND_CONNECTIONS = [
   [18, 19],
   [19, 20],
 ];
+
 function preProcessLandmark(
   rawLandmarks: number[],
   frameWidth: number,
   frameHeight: number
 ) {
   "worklet";
-  const tempLandmarkList = [];
+  const processed: number[] = [];
+  const spatialCoords: number[] = [];
 
   for (let i = 0; i < 21; i++) {
-    const lx = Math.min(
-      Math.floor(rawLandmarks[i * 3] * frameWidth),
-      frameWidth - 1
-    );
-    const ly = Math.min(
-      Math.floor(rawLandmarks[i * 3 + 1] * frameHeight),
-      frameHeight - 1
-    );
-    tempLandmarkList.push([lx, ly]);
+    const rawIdx = i * 3;
+
+    // inverted since camera is rotated 90deg
+    const px = rawLandmarks[rawIdx + 1] * frameWidth;
+    const py = rawLandmarks[rawIdx] * frameHeight;
+    spatialCoords.push(py, px);
+
+    // original code
+    // const px = rawLandmarks[rawIdx] * frameWidth;
+    // const py = rawLandmarks[rawIdx + 1] * frameHeight;
+    // spatialCoords.push(px, py);
   }
 
-  const baseX = tempLandmarkList[0][0];
-  const baseY = tempLandmarkList[0][1];
+  const baseX = spatialCoords[0];
+  const baseY = spatialCoords[1];
 
-  const flattenedAndRelative = [];
-  for (let i = 0; i < 21; i++) {
-    flattenedAndRelative.push(tempLandmarkList[i][0] - baseX);
-    flattenedAndRelative.push(tempLandmarkList[i][1] - baseY);
+  for (let i = 0; i < spatialCoords.length; i += 2) {
+    processed.push(spatialCoords[i] - baseX);
+    processed.push(spatialCoords[i + 1] - baseY);
   }
 
   let maxValue = 0;
-  for (let i = 0; i < flattenedAndRelative.length; i++) {
-    const absVal = Math.abs(flattenedAndRelative[i]);
+  for (let i = 0; i < processed.length; i++) {
+    const absVal = Math.abs(processed[i]);
     if (absVal > maxValue) {
       maxValue = absVal;
     }
   }
 
-  const normalizedList = [];
-  for (let i = 0; i < flattenedAndRelative.length; i++) {
-    normalizedList.push(maxValue > 0 ? flattenedAndRelative[i] / maxValue : 0);
+  for (let i = 0; i < processed.length; i++) {
+    processed[i] = maxValue > 0 ? processed[i] / maxValue : 0;
   }
 
-  return normalizedList;
+  return processed;
 }
 
 interface ASLCameraQuizProps {
@@ -213,13 +215,13 @@ export default function ASLCameraQuiz({
               if (outputs && outputs.length > 0) {
                 const predictions = outputs[0] as number[];
                 const targetIdx = LABELS.indexOf(targetLetter);
-                console.log(
-                  Object.entries(predictions)
-                    .filter(([_, value]) => value > 0.01)
-                    .map(([key, value]) => ({
-                      [LABELS[Number(key)]]: value,
-                    }))
-                );
+                // console.log(
+                //   Object.entries(predictions)
+                //     .filter(([_, value]) => value > 0.01)
+                //     .map(([key, value]) => ({
+                //       [LABELS[Number(key)]]: value,
+                //     }))
+                // );
 
                 handlePercentUpdate(
                   (predictions[targetIdx] / CONFIDENCE_THRESHOLD) * 100
@@ -345,10 +347,15 @@ export default function ASLCameraQuiz({
             style={[
               styles.progressBarFill,
               {
-                width: animatedWidth.interpolate({
-                  inputRange: [0, 100],
-                  outputRange: ["0%", "100%"],
-                }),
+                transform: [
+                  {
+                    scaleX: animatedWidth.interpolate({
+                      inputRange: [0, 100],
+                      outputRange: [0, 1],
+                    }),
+                  },
+                ],
+                transformOrigin: "left",
               },
             ]}
           />
