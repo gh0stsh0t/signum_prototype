@@ -7,6 +7,7 @@ import {
   View,
 } from "react-native";
 
+import LessonGroup from "@/constants/LessonGroup";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -22,14 +23,16 @@ const renderIcon = (status: string) => {
       return null;
   }
 };
+
+const mockProgress = {
+  "1": { status: "completed", score: "100%" },
+  "2": { status: "in-progress", score: "45%" },
+};
 const ASLLettersScreen = () => {
-  const lessons = [
-    { id: "1", title: "Letters A - E", status: "completed", score: "100%" },
-    { id: "2", title: "Letters F - J", status: "in-progress", score: "45%" },
-    { id: "3", title: "Letters K - O", status: "locked", score: null },
-    { id: "4", title: "Letters P - T", status: "locked", score: null },
-    { id: "5", title: "Letters U - Z", status: "locked", score: null },
-  ];
+  const lessons = LessonGroup.map((lessonDetails) => ({
+    ...lessonDetails,
+    ...(mockProgress?.[lessonDetails.id] ?? { status: "locked" }),
+  }));
   const router = useRouter();
 
   return (
@@ -75,7 +78,7 @@ const ASLLettersScreen = () => {
               lesson.status === "locked" && styles.lessonCardLocked,
             ]}
             disabled={lesson.status === "locked"}
-            onPress={() => router.navigate("./lesson/letter")}
+            onPress={() => router.navigate(`./lesson/lessonGroup/${lesson.id}`)}
           >
             <View style={styles.lessonInfo}>
               <Text

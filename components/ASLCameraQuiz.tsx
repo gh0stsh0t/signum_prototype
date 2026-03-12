@@ -213,6 +213,13 @@ export default function ASLCameraQuiz({
               if (outputs && outputs.length > 0) {
                 const predictions = outputs[0] as number[];
                 const targetIdx = LABELS.indexOf(targetLetter);
+                console.log(
+                  Object.entries(predictions)
+                    .filter(([_, value]) => value > 0.01)
+                    .map(([key, value]) => ({
+                      [LABELS[Number(key)]]: value,
+                    }))
+                );
 
                 handlePercentUpdate(
                   (predictions[targetIdx] / CONFIDENCE_THRESHOLD) * 100
@@ -247,7 +254,7 @@ export default function ASLCameraQuiz({
         console.error("Frame Error:", JSON.stringify(e));
       }
     },
-    [model, targetLetter] // Added targetLetter as dependency
+    [model, targetLetter]
   );
 
   const getPoint = (handData: number[], index: number) => {
