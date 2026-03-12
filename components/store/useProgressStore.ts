@@ -17,7 +17,7 @@ export const useProgressStore = create<ProgressState>()(
         const currentLetters = get().completedLetters[groupId] || [];
 
         // Only add the letter if it's not already in the array
-        if (!currentLetters.includes(letter)) {
+        if (!currentLetters?.includes(letter)) {
           set((state) => ({
             completedLetters: {
               ...state.completedLetters,

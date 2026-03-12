@@ -1,8 +1,12 @@
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
-import { Link } from "expo-router";
+import { usePracticeTimeStore } from "@/components/store/usePracticeTimeStore";
+import { useProgressStore } from "@/components/store/useProgressStore";
+import { useStreakStore } from "@/components/store/useStreakStore";
+import { getAlphabetCompletion } from "@/utils/getAlphabetCompletion";
+import { getLessonList } from "@/utils/getLessonList";
+import { Feather, Ionicons } from "@expo/vector-icons";
+import { Link, useRouter } from "expo-router";
 import React from "react";
 import {
-  Image,
   ScrollView,
   StyleSheet,
   Text,
@@ -26,13 +30,57 @@ const COLORS = {
 
 // Dummy Data
 const filters = ["All", "Today", "This Month", "Overall"];
-const stats = [
-  { value: "12h 33m", label: "Practice Time" },
-  { value: "75%", label: "Quiz Performance" },
-  { value: "56,70%", label: "Progress" },
-];
+
+// 2. Add this helper function outside your component
+const formatPracticeTime = (totalSeconds: number) => {
+  if (totalSeconds < 60) return `${totalSeconds}s`; // Optional: Show seconds if less than a minute
+
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+};
 
 export default function DashboardScreen() {
+  const router = useRouter();
+  const completedLettersData = useProgressStore(
+    (state) => state.completedLetters
+  );
+  const streakCount = useStreakStore((state) => state.streakCount);
+  const totalPracticeSeconds = usePracticeTimeStore(
+    (state) => state.totalSeconds
+  );
+  const lessons = getLessonList(completedLettersData);
+  const alphabetCompleted = getAlphabetCompletion(completedLettersData);
+
+  const lessonsCompleted = lessons.filter(
+    (lesson) => lesson.status === "completed"
+  );
+  const lessonsUnlocked = lessons.filter(
+    (lesson) => lesson.status !== "locked"
+  );
+  const startWhere = lessons.find((lesson) => lesson.status === "in-progress");
+  const upNext = startWhere?.signs.find(
+    (letter) => !completedLettersData?.[startWhere?.id]?.includes(letter)
+  );
+  const stats = [
+    { value: formatPracticeTime(totalPracticeSeconds), label: "Practice Time" },
+    {
+      value: `${streakCount} Day${streakCount === 1 ? "" : "s"}`,
+      label: "Active Streak",
+    },
+  ];
+  if (upNext && startWhere) {
+    stats.push({
+      value: `Letter '${upNext}'`,
+      label: "Up Next",
+      onPress: () => router.navigate(`./lesson/lessonGroup/${startWhere.id}`),
+    });
+  }
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ScrollView
@@ -44,7 +92,7 @@ export default function DashboardScreen() {
             <Text style={styles.greetingText}>Good Morning,</Text>
             <Text style={styles.nameText}>Loren Ipsum</Text>
           </View>
-          <View style={styles.profileSection}>
+          {/* <View style={styles.profileSection}>
             <TouchableOpacity>
               <Ionicons
                 name="notifications-sharp"
@@ -57,7 +105,7 @@ export default function DashboardScreen() {
               source={{ uri: "https://i.pravatar.cc/150?img=47" }}
               style={styles.profilePic}
             />
-          </View>
+          </View> */}
         </View>
 
         <Link href="/lesson" asChild>
@@ -74,12 +122,9 @@ export default function DashboardScreen() {
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Task Overview</Text>
-          <TouchableOpacity style={styles.gridIconContainer}>
-            <MaterialCommunityIcons name="view-grid" size={20} color="#FFF" />
-          </TouchableOpacity>
         </View>
 
-        <ScrollView
+        {/* <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.filtersScroll}
@@ -101,7 +146,7 @@ export default function DashboardScreen() {
               </Text>
             </TouchableOpacity>
           ))}
-        </ScrollView>
+        </ScrollView> */}
 
         {/* Main Learning Progress Card */}
         <View
@@ -114,39 +159,51 @@ export default function DashboardScreen() {
             </View>
           </View>
           <View style={styles.cardContent}>
-            <Text style={styles.cardPercentage}>100%</Text>
+            <Text style={styles.cardPercentage}>
+              {(
+                (lessonsCompleted.length / lessons.length) *
+                100
+              ).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+              %
+            </Text>
             <Text style={styles.cardSubtitle}>Lessons Completed</Text>
           </View>
         </View>
 
         <View style={styles.subCardsRow}>
+          {/* Suggestion 1: Signs Mastered */}
           <View
             style={[styles.subCard, { backgroundColor: COLORS.cardBgLight }]}
           >
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitleSmall}>Quiz Accuracy</Text>
+              <Text style={styles.cardTitleSmall}>Signs{"\n"}Mastered</Text>
               <View style={styles.iconCircleLight}>
-                <Ionicons name="caret-up" size={14} color={COLORS.navy} />
+                <Ionicons name="star" size={14} color={COLORS.navy} />
               </View>
             </View>
             <View style={styles.subCardContent}>
-              <Text style={styles.cardPercentageSmall}>50%</Text>
-              <Text style={styles.cardSubtitleSmall}>Correct Signs</Text>
+              <Text style={styles.cardPercentageSmall}>
+                {alphabetCompleted}/26
+              </Text>
+              <Text style={styles.cardSubtitleSmall}>Alphabet Letters</Text>
             </View>
           </View>
 
+          {/* Suggestion 2: Modules Unlocked */}
           <View
             style={[styles.subCard, { backgroundColor: COLORS.cardBgLight }]}
           >
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitleSmall}>Practice{"\n"}Sessions</Text>
+              <Text style={styles.cardTitleSmall}>Modules{"\n"}Unlocked</Text>
               <View style={styles.iconCircleDark}>
-                <Ionicons name="caret-down" size={14} color="#FFF" />
+                <Ionicons name="lock-open" size={14} color="#FFF" />
               </View>
             </View>
             <View style={styles.subCardContent}>
-              <Text style={styles.cardPercentageSmall}>30%</Text>
-              <Text style={styles.cardSubtitleSmall}>In Progress</Text>
+              <Text style={styles.cardPercentageSmall}>
+                {lessonsUnlocked.length}/5
+              </Text>
+              <Text style={styles.cardSubtitleSmall}>Lesson Groups</Text>
             </View>
           </View>
         </View>
@@ -161,12 +218,23 @@ export default function DashboardScreen() {
           showsHorizontalScrollIndicator={false}
           style={styles.statsScroll}
         >
-          {stats.map((stat, index) => (
-            <View key={index} style={styles.statCard}>
-              <Text style={styles.statValue}>{stat.value}</Text>
-              <Text style={styles.statLabel}>{stat.label}</Text>
-            </View>
-          ))}
+          {stats.map((stat, index) =>
+            stat?.onPress ? (
+              <TouchableOpacity
+                key={index}
+                style={styles.statCard}
+                onPress={stat.onPress}
+              >
+                <Text style={styles.statValue}>{stat.value}</Text>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+              </TouchableOpacity>
+            ) : (
+              <View key={index} style={styles.statCard}>
+                <Text style={styles.statValue}>{stat.value}</Text>
+                <Text style={styles.statLabel}>{stat.label}</Text>
+              </View>
+            )
+          )}
         </ScrollView>
       </ScrollView>
     </SafeAreaView>

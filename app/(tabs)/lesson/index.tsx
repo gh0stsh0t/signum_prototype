@@ -8,13 +8,11 @@ import {
 } from "react-native";
 
 import { useProgressStore } from "@/components/store/useProgressStore";
-import LessonGroup from "@/constants/LessonGroup";
+import { getAlphabetCompletion } from "@/utils/getAlphabetCompletion";
+import { getLessonList } from "@/utils/getLessonList";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
-
-
-const LETTERS_IDS = ["1", "2", "3", "4", "5"];
 
 const renderIcon = (status: string) => {
   switch (status) {
@@ -35,47 +33,8 @@ const ASLLettersScreen = () => {
   const completedLettersData = useProgressStore(
     (state) => state.completedLetters
   );
-
-  // 2. Calculate status and progress dynamically for each lesson
-  const lessons = LessonGroup.map((lessonDetails, index) => {
-    const completedSigns = completedLettersData[lessonDetails.id] || [];
-    const totalSigns = lessonDetails.signs?.length || 1;
-
-    const progressPercent = Math.round(
-      (completedSigns.length / totalSigns) * 100
-    );
-
-    // Determine Status
-    let status: "locked" | "in-progress" | "completed" = "locked";
-
-    if (progressPercent === 100) {
-      status = "completed";
-    } else {
-      // Check if previous lesson is started to unlock this one
-      const isFirstLesson = index === 0;
-      const prevLessonId = index > 0 ? LessonGroup[index - 1].id : null;
-      const prevLessonCompletedSigns = prevLessonId
-        ? completedLettersData[prevLessonId] || []
-        : [];
-
-      const isPrevLessonOngoing = prevLessonCompletedSigns.length > 0;
-
-      if (isFirstLesson || isPrevLessonOngoing || completedSigns.length > 0) {
-        status = "in-progress";
-      }
-    }
-
-    return {
-      ...lessonDetails,
-      status,
-      progress: `${progressPercent}%`, // Renamed from score
-    };
-  });
-
-  const alphabetCompleted = LETTERS_IDS.reduce(
-    (acc, id) => (acc = (completedLettersData[id]?.length || 0) + acc),
-    0
-  );
+  const lessons = getLessonList(completedLettersData);
+  const alphabetCompleted = getAlphabetCompletion(completedLettersData);
 
   const startWhere = lessons.find((lesson) => lesson.status === "in-progress");
 

@@ -1,10 +1,12 @@
 import ASLCameraQuiz from "@/components/ASLCameraQuiz";
+import { usePracticeTimeStore } from "@/components/store/usePracticeTimeStore";
 import { useProgressStore } from "@/components/store/useProgressStore";
+import { useStreakStore } from "@/components/store/useStreakStore";
 import Instructions from "@/constants/Instructions";
 import LessonGroup from "@/constants/LessonGroup";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Dimensions,
   ScrollView,
@@ -21,22 +23,37 @@ const ASLLessonViewScreen = () => {
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
 
-  // Lesson State
   const [currentIndex, setCurrentIndex] = useState(0);
 
-  // Toggle states for combining the views
   const [showQuiz, setShowQuiz] = useState(false);
   const [quizPassed, setQuizPassed] = useState(false);
+  const updateStreak = useStreakStore((state) => state.updateStreak);
   const addCompletedLetter = useProgressStore(
     (state) => state.addCompletedLetter
   );
+  const addPracticeTime = usePracticeTimeStore(
+    (state) => state.addPracticeTime
+  );
+
+  useEffect(() => {
+    if (!showQuiz) return;
+    const startTime = Date.now();
+    // The cleanup function runs automatically when showQuiz changes to false,
+    // OR if the user navigates back/away while the quiz is still open.
+    return () => {
+      const endTime = Date.now();
+      const secondsSpent = Math.floor((endTime - startTime) / 1000);
+      if (secondsSpent > 0) {
+        addPracticeTime(secondsSpent);
+      }
+    };
+  }, [showQuiz]);
 
   const currentGroup = LessonGroup.find((lesson) => lesson.id === groupId);
   const currentSign = currentGroup?.signs[currentIndex] || "";
   const currentInstruction = Instructions?.[currentSign] || {};
 
   const totalLetters = currentGroup?.signs.length || 0;
-  // Progress calculates based on how many letters have been fully completed (instruction + quiz)
   const progressPercentage = (currentIndex / totalLetters) * 100;
 
   // ==========================================
@@ -73,6 +90,7 @@ const ASLLessonViewScreen = () => {
             targetLetter={currentSign}
             onSuccess={() => {
               addCompletedLetter(groupId, currentSign);
+              updateStreak();
               setQuizPassed(true);
             }}
           />
@@ -143,16 +161,14 @@ const ASLLessonViewScreen = () => {
               style={[styles.progressBar, { width: `${progressPercentage}%` }]}
             />
           </View>
-
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="flag-outline" size={24} color="#022469" />
-          </TouchableOpacity>
         </View>
 
         {/* Main Content Area */}
         <View style={styles.contentContainer}>
           <Text style={styles.letterHighlight}>{currentSign}</Text>
           <Text style={styles.letterInstruction}>
+            Palm position: {currentInstruction.palm}
+            {"\n"}
             {currentInstruction.instruction}
           </Text>
 
