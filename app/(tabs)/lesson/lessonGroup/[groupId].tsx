@@ -6,6 +6,7 @@ import Instructions from "@/constants/Instructions";
 import LessonGroup from "@/constants/LessonGroup";
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { VideoView, useVideoPlayer } from "expo-video";
 import React, { useEffect, useState } from "react";
 import {
   Dimensions,
@@ -52,6 +53,11 @@ const ASLLessonViewScreen = () => {
   const currentGroup = LessonGroup.find((lesson) => lesson.id === groupId);
   const currentSign = currentGroup?.signs[currentIndex] || "";
   const currentInstruction = Instructions?.[currentSign] || {};
+  const player = useVideoPlayer(currentInstruction?.videoSource, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
 
   const totalLetters = currentGroup?.signs.length || 0;
   const progressPercentage = (currentIndex / totalLetters) * 100;
@@ -173,12 +179,21 @@ const ASLLessonViewScreen = () => {
           </Text>
 
           <View style={styles.mediaContainer}>
-            <View style={styles.imagePlaceholder}>
-              <Ionicons name="hand-right-outline" size={80} color="#022469" />
-              <Text style={styles.placeholderText}>
-                ASL "{currentSign}" Sign Image
-              </Text>
-            </View>
+            {currentInstruction?.videoSource ? (
+              <VideoView
+                style={styles.video}
+                player={player}
+                contentFit="cover" // This fits the height and crops the width
+                nativeControls={false} // Hides the play/pause UI overlays
+              />
+            ) : (
+              <View style={styles.imagePlaceholder}>
+                <Ionicons name="hand-right-outline" size={80} color="#022469" />
+                <Text style={styles.placeholderText}>
+                  ASL "{currentSign}" Sign Image
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -275,6 +290,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 8,
     elevation: 6,
+    overflow: "hidden",
   },
   imagePlaceholder: { alignItems: "center", justifyContent: "center" },
   placeholderText: {
@@ -282,6 +298,10 @@ const styles = StyleSheet.create({
     color: "#022469",
     fontWeight: "600",
     fontSize: 16,
+  },
+  video: {
+    width: "100%",
+    height: "100%",
   },
   footer: {
     flexDirection: "row",

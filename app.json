@@ -20,12 +20,6 @@
       "bundleIdentifier": "com.anonymous.signum"
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
-      },
       "predictiveBackGestureEnabled": false,
       "permissions": [
         "android.permission.CAMERA"
@@ -46,7 +40,8 @@
           "enableMicrophonePermission": false
         }
       ],
-      "react-native-fast-tflite"
+      "react-native-fast-tflite",
+      "expo-video"
     ],
     "experiments": {
       "typedRoutes": true
