@@ -1,4 +1,4 @@
-import ASLCameraQuiz from "@/components/ASLCameraQuiz";
+// import ASLCameraQuiz from "@/components/ASLCameraQuiz";
 import { usePracticeTimeStore } from "@/components/store/usePracticeTimeStore";
 import { useProgressStore } from "@/components/store/useProgressStore";
 import { useStreakStore } from "@/components/store/useStreakStore";
@@ -20,14 +20,35 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 const { width } = Dimensions.get("window");
 
+const LessonVideoPlayer = ({ videoSource }: { videoSource: any }) => {
+  const player = useVideoPlayer(videoSource, (player) => {
+    player.loop = true;
+    player.muted = true;
+    player.play();
+  });
+
+  return (
+    <VideoView
+      style={styles.video}
+      player={player}
+      contentFit="cover"
+      nativeControls={false}
+    />
+  );
+};
+
 const ASLLessonViewScreen = () => {
   const router = useRouter();
   const { groupId } = useLocalSearchParams<{ groupId: string }>();
 
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [videoMap, setVideoMap] = useState<Record<string, any> | null>(null);
 
   const [showQuiz, setShowQuiz] = useState(false);
   const [quizPassed, setQuizPassed] = useState(false);
+
+  const [isReady, setIsReady] = useState(false);
+
   const updateStreak = useStreakStore((state) => state.updateStreak);
   const addCompletedLetter = useProgressStore(
     (state) => state.addCompletedLetter
@@ -35,12 +56,48 @@ const ASLLessonViewScreen = () => {
   const addPracticeTime = usePracticeTimeStore(
     (state) => state.addPracticeTime
   );
+  useEffect(() => {
+    let handle: number;
+    let prefetchHandle: number;
+
+    const setReady = () => {
+      setIsReady(true);
+
+      const loadedVideos = require("@/constants/LetterVideo").default;
+      setVideoMap(loadedVideos);
+
+      if (typeof requestIdleCallback !== "undefined") {
+        prefetchHandle = requestIdleCallback(() =>
+          require("@/components/ASLCameraQuiz")
+        );
+      } else {
+        prefetchHandle = setTimeout(
+          () => require("@/components/ASLCameraQuiz"),
+          200
+        ) as unknown as number;
+      }
+    };
+
+    if (typeof requestIdleCallback !== "undefined") {
+      handle = requestIdleCallback(setReady);
+    } else {
+      handle = setTimeout(setReady, 300) as unknown as number;
+    }
+
+    return () => {
+      if (typeof cancelIdleCallback !== "undefined") {
+        cancelIdleCallback(handle);
+        cancelIdleCallback(prefetchHandle);
+      } else {
+        clearTimeout(handle);
+        clearTimeout(prefetchHandle);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!showQuiz) return;
     const startTime = Date.now();
-    // The cleanup function runs automatically when showQuiz changes to false,
-    // OR if the user navigates back/away while the quiz is still open.
     return () => {
       const endTime = Date.now();
       const secondsSpent = Math.floor((endTime - startTime) / 1000);
@@ -53,11 +110,6 @@ const ASLLessonViewScreen = () => {
   const currentGroup = LessonGroup.find((lesson) => lesson.id === groupId);
   const currentSign = currentGroup?.signs[currentIndex] || "";
   const currentInstruction = Instructions?.[currentSign] || {};
-  const player = useVideoPlayer(currentInstruction?.videoSource, (player) => {
-    player.loop = true;
-    player.muted = true;
-    player.play();
-  });
 
   const totalLetters = currentGroup?.signs.length || 0;
   const progressPercentage = (currentIndex / totalLetters) * 100;
@@ -66,6 +118,7 @@ const ASLLessonViewScreen = () => {
   // 1. QUIZ VIEW
   // ==========================================
   if (showQuiz) {
+    const ASLCameraQuiz = require("@/components/ASLCameraQuiz").default;
     return (
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.quizHeader}>
@@ -179,13 +232,8 @@ const ASLLessonViewScreen = () => {
           </Text>
 
           <View style={styles.mediaContainer}>
-            {currentInstruction?.videoSource ? (
-              <VideoView
-                style={styles.video}
-                player={player}
-                contentFit="cover" // This fits the height and crops the width
-                nativeControls={false} // Hides the play/pause UI overlays
-              />
+            {videoMap?.[currentSign] ? (
+              <LessonVideoPlayer videoSource={videoMap[currentSign]} />
             ) : (
               <View style={styles.imagePlaceholder}>
                 <Ionicons name="hand-right-outline" size={80} color="#022469" />
